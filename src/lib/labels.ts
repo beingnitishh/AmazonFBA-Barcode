@@ -7,18 +7,18 @@ import boldFont from 'dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf?url';
 export const MAX_FILE_MB = 10;
 export const MAX_ROWS = 10000;
 export type SourceRow = { rowNumber: number; cells: string[]; numeric: boolean[]; formulas: boolean[]; raw: unknown[] };
-export type SheetData = { fileName: string; fileSize: number; headers: string[]; rows: SourceRow[]; fnskuColumn: number; mrpColumn: number };
-export type LabelRow = { rowNumber: number; fnsku: string; mrpDisplay: string; errors: string[]; duplicate: boolean; bits: string };
-export const sampleRecords = [['X001ABC123', 499], ['X001ABC124', 799], ['X001ABC125', 1299], ['X001ABC126', 349], ['X001ABC127', 599]];
-export const demoLabel: LabelRow = { rowNumber: 2, fnsku: 'X001ABC123', mrpDisplay: '499', errors: [], duplicate: false, bits: barcodeBits('X001ABC123') };
+export type SheetData = { fileName: string; fileSize: number; headers: string[]; rows: SourceRow[]; fnskuColumn: number; titleColumn: number; mrpColumn: number };
+export type LabelRow = { rowNumber: number; fnsku: string; title: string; mrpDisplay: string; errors: string[]; duplicate: boolean; bits: string };
+export const sampleRecords = [['X001ABC123', 'Stainless Steel Bottle', 499], ['X001ABC124', 'Organic Honey 500g', 799], ['X001ABC125', 'Cotton T-Shirt Large', 1299], ['X001ABC126', 'USB-C Fast Charger', 349], ['X001ABC127', 'Wireless Mouse', 599]];
+export const demoLabel: LabelRow = { rowNumber: 2, fnsku: 'X001ABC123', title: 'Stainless Steel Bottle', mrpDisplay: '499', errors: [], duplicate: false, bits: barcodeBits('X001ABC123') };
 
 export function barcodeBits(value: string): string {
   const output: { encodings?: { data: string }[] } = {};
   JsBarcode(output, value, { format: 'CODE128', displayValue: false, margin: 0 });
   return output.encodings?.map(e => e.data).join('') || '';
 }
-export function detect(headers: string[], kind: 'fnsku' | 'mrp') {
-  const accepted = kind === 'fnsku' ? ['fnsku', 'fnsku code'] : ['mrp', 'mrp (₹)', 'maximum retail price'];
+export function detect(headers: string[], kind: 'fnsku' | 'title' | 'mrp') {
+  const accepted = kind === 'fnsku' ? ['fnsku', 'fnsku code'] : kind === 'title' ? ['title', 'product title', 'name', 'item title'] : ['mrp', 'mrp (₹)', 'maximum retail price'];
   const matches = headers.map((h, i) => accepted.includes(h.trim().toLowerCase()) ? i : -1).filter(i => i >= 0);
   return matches.length === 1 ? matches[0] : -1;
 }
@@ -27,7 +27,7 @@ export async function parseFile(file: File): Promise<SheetData> {
   if (file.size > MAX_FILE_MB * 1024 * 1024) throw new Error(`This file exceeds the ${MAX_FILE_MB} MB limit. Please upload a smaller spreadsheet.`);
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellFormula: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet || !sheet['!ref']) throw new Error('This spreadsheet is empty. Add FNSKU and MRP headers and at least one data row.');
+  if (!sheet || !sheet['!ref']) throw new Error('This spreadsheet is empty. Add FNSKU, Title, and MRP headers and at least one data row.');
   const range = XLSX.utils.decode_range(sheet['!ref']);
   if (range.e.r > 100000 || range.e.c > 1000) throw new Error('This worksheet is too large. Remove unused rows and columns and try again.');
   const headers: string[] = [];
@@ -42,13 +42,14 @@ export async function parseFile(file: File): Promise<SheetData> {
     }
     if (cells.some(Boolean) || formulas.some(Boolean)) rows.push({ rowNumber: r + 1, cells, numeric, formulas, raw });
   }
-  if (!rows.length) throw new Error('No data rows found. Add at least one FNSKU and MRP below the headers.');
+  if (!rows.length) throw new Error('No data rows found. Add at least one FNSKU, Title, and MRP below the headers.');
   if (rows.length > MAX_ROWS) throw new Error(`Please use batches of ${MAX_ROWS.toLocaleString()} rows or fewer.`);
-  return { fileName: file.name, fileSize: file.size, headers, rows, fnskuColumn: detect(headers, 'fnsku'), mrpColumn: detect(headers, 'mrp') };
+  return { fileName: file.name, fileSize: file.size, headers, rows, fnskuColumn: detect(headers, 'fnsku'), titleColumn: detect(headers, 'title'), mrpColumn: detect(headers, 'mrp') };
 }
-export function validateRows(sheet: SheetData, f: number, m: number): LabelRow[] {
+export function validateRows(sheet: SheetData, f: number, t: number, m: number): LabelRow[] {
   const rows = sheet.rows.map(source => {
     const fnsku = source.cells[f] || '';
+    const title = source.cells[t] || '';
     const originalMrp = source.cells[m] || '';
     const errors: string[] = [];
     let bits = '';
@@ -59,14 +60,15 @@ export function validateRows(sheet: SheetData, f: number, m: number): LabelRow[]
       try { bits = barcodeBits(fnsku); if (bits.length > 200) errors.push('FNSKU is too long for a reliably scannable 2-inch label'); }
       catch { errors.push('Invalid Code 128 FNSKU'); }
     }
-    if (source.formulas[f] || source.formulas[m]) errors.push('Replace formulas with their values before uploading');
+    if (!title) errors.push('Missing title');
+    if (source.formulas[f] || source.formulas[t] || source.formulas[m]) errors.push('Replace formulas with their values before uploading');
     const mrpString = (source.numeric[m] ? String(source.raw[m]) : originalMrp).replace(/^(?:₹|INR|Rs\.?)\s*/i, '').trim();
     const currencyPattern = /^(?:\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(?:\.\d{1,2})?$/;
     const mrp = Number(mrpString.replace(/,/g, ''));
     if (!originalMrp) errors.push('Missing MRP');
     else if (!currencyPattern.test(mrpString) || !Number.isFinite(mrp) || mrp < 0 || mrp > 999999999) errors.push('Invalid MRP: enter a non-negative amount with at most 2 decimal places');
     const mrpDisplay = Number.isFinite(mrp) ? mrp.toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: mrpString.includes('.') ? 2 : 0 }) : originalMrp;
-    return { rowNumber: source.rowNumber, fnsku, mrpDisplay, errors, duplicate: false, bits };
+    return { rowNumber: source.rowNumber, fnsku, title, mrpDisplay, errors, duplicate: false, bits };
   });
   const counts = new Map<string, number>();
   rows.forEach(r => { if (r.fnsku) counts.set(r.fnsku, (counts.get(r.fnsku) || 0) + 1); });
@@ -74,13 +76,13 @@ export function validateRows(sheet: SheetData, f: number, m: number): LabelRow[]
 }
 export function downloadTemplate() {
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['FNSKU', 'MRP (₹)'], ...sampleRecords]), 'Labels');
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['FNSKU', 'Title', 'MRP (₹)'], ...sampleRecords]), 'Labels');
   XLSX.writeFile(workbook, 'FNSKU_Label_Template.xlsx');
 }
 export function sampleSheet(): SheetData {
-  return { fileName: 'FNSKU_MRP_Sample.xlsx', fileSize: 8640, headers: ['FNSKU', 'MRP (₹)'], fnskuColumn: 0, mrpColumn: 1, rows: sampleRecords.map((r, i) => ({ rowNumber: i + 2, cells: r.map(String), numeric: [false, true], formulas: [false, false], raw: r })) };
+  return { fileName: 'FNSKU_MRP_Sample.xlsx', fileSize: 8640, headers: ['FNSKU', 'Title', 'MRP (₹)'], fnskuColumn: 0, titleColumn: 1, mrpColumn: 2, rows: sampleRecords.map((r, i) => ({ rowNumber: i + 2, cells: r.map(String), numeric: [false, false, true], formulas: [false, false, false], raw: r })) };
 }
-export const labelLayout = { width: 144, height: 72, x: 12, y: 10, barcodeWidth: 120, barcodeHeight: 30, fnskuY: 49, fnskuSize: 7.5, mrpY: 62, mrpSize: 9 };
+export const labelLayout = { width: 144, height: 72, x: 12, y: 10, barcodeWidth: 120, barcodeHeight: 30, fnskuY: 49, fnskuSize: 6.8, mrpY: 61, mrpSize: 8.5 };
 export function barRects(bits: string) {
   const bars: { x: number; width: number }[] = [];
   const unit = labelLayout.barcodeWidth / bits.length;
@@ -114,7 +116,7 @@ export async function generatePdf(rows: LabelRow[], progress: (n: number) => voi
     pdf.setFillColor(0, 0, 0);
     barRects(row.bits).forEach(bar => pdf.rect(bar.x, labelLayout.y, bar.width, labelLayout.barcodeHeight, 'F'));
     pdf.setFont('Label', 'normal'); pdf.setFontSize(labelLayout.fnskuSize);
-    pdf.text(row.fnsku, 72, labelLayout.fnskuY, { align: 'center' });
+    pdf.text(`${row.fnsku} ${row.title}`, 72, labelLayout.fnskuY, { align: 'center' });
     pdf.setFont('Label', 'bold'); pdf.setFontSize(labelLayout.mrpSize);
     pdf.text(`MRP: ₹${row.mrpDisplay}`, 72, labelLayout.mrpY, { align: 'center' });
     if (i % 25 === 0 || i === rows.length - 1) { progress(i + 1); await new Promise(resolve => setTimeout(resolve, 0)); }
