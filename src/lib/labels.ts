@@ -27,7 +27,7 @@ export async function parseFile(file: File): Promise<SheetData> {
   if (file.size > MAX_FILE_MB * 1024 * 1024) throw new Error(`This file exceeds the ${MAX_FILE_MB} MB limit. Please upload a smaller spreadsheet.`);
   const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellFormula: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
-  if (!sheet || !sheet['!ref']) throw new Error('This spreadsheet is empty. Add FNSKU and MRP headers and at least one data row.');
+  if (!sheet || !sheet['!ref']) throw new Error('This spreadsheet is empty. Add FNSKU, Title, and MRP headers and at least one data row.');
   const range = XLSX.utils.decode_range(sheet['!ref']);
   if (range.e.r > 100000 || range.e.c > 1000) throw new Error('This worksheet is too large. Remove unused rows and columns and try again.');
   const headers: string[] = [];
@@ -42,7 +42,7 @@ export async function parseFile(file: File): Promise<SheetData> {
     }
     if (cells.some(Boolean) || formulas.some(Boolean)) rows.push({ rowNumber: r + 1, cells, numeric, formulas, raw });
   }
-  if (!rows.length) throw new Error('No data rows found. Add at least one FNSKU and MRP below the headers.');
+  if (!rows.length) throw new Error('No data rows found. Add at least one FNSKU, Title, and MRP below the headers.');
   if (rows.length > MAX_ROWS) throw new Error(`Please use batches of ${MAX_ROWS.toLocaleString()} rows or fewer.`);
   return { fileName: file.name, fileSize: file.size, headers, rows, fnskuColumn: detect(headers, 'fnsku'), titleColumn: detect(headers, 'title'), mrpColumn: detect(headers, 'mrp') };
 }
