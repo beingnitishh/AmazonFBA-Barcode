@@ -1,15 +1,19 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleCheck, CircleHelp, Download, ExternalLink, FileCheck2, FileSpreadsheet, FileText, FolderOpen, Info, Layers, Lightbulb, LoaderCircle, LockKeyhole, Menu, Plus, Printer, ScanBarcode, ShieldCheck, Sparkles, Upload, X, AlertTriangle } from 'lucide-react';
-import { MAX_FILE_MB, barRects, demoLabel, downloadTemplate, generatePdf, labelLayout, parseFile, sampleSheet, savePdf, validateRows } from './lib/labels';
+import { MAX_FILE_MB, barRects, demoLabel, downloadTemplate, generatePdf, labelLayout, parseFile, sampleSheet, savePdf, truncateLabelLine, validateRows } from './lib/labels';
 import type { LabelRow, SheetData } from './lib/labels';
 
 type Modal = 'help' | 'template' | 'printing' | null;
 function LabelPreview({ row }: { row: LabelRow }) {
+  const context = document.createElement('canvas').getContext('2d');
+  if (context) context.font = `${labelLayout.titleSize}px LabelFont, sans-serif`;
+  const title = truncateLabelLine(row.title, labelLayout.barcodeWidth, value => context ? context.measureText(value).width : value.length * labelLayout.titleSize * 0.55);
   return <svg viewBox="0 0 144 72" className="label-svg" role="img" aria-label={`Code 128 barcode for ${row.fnsku} ${row.title}, MRP ₹${row.mrpDisplay}`}>
     <rect width="144" height="72" fill="white" />
     {barRects(row.bits).map((bar, i) => <rect key={i} x={bar.x} y={labelLayout.y} width={bar.width} height={labelLayout.barcodeHeight} fill="#111" />)}
-    <text x="72" y={labelLayout.fnskuY} textAnchor="middle" fontFamily="LabelFont" fontSize={labelLayout.fnskuSize}>{row.fnsku} {row.title}</text>
-    <text x="72" y={labelLayout.mrpY} textAnchor="middle" fontFamily="LabelFont" fontSize={labelLayout.mrpSize} fontWeight="700">MRP: ₹{row.mrpDisplay}</text>
+    <text x="72" y={labelLayout.fnskuY} textAnchor="middle" fontFamily="LabelFont" fontSize={labelLayout.fnskuSize}>{row.fnsku}</text>
+    <text x="72" y={labelLayout.titleY} textAnchor="middle" fontFamily="LabelFont" fontSize={labelLayout.titleSize}>{title}</text>
+    <text x="72" y={labelLayout.mrpY} textAnchor="middle" fontFamily="LabelFont" fontSize={labelLayout.mrpSize} fontWeight="700">MRP: ₹ {row.mrpDisplay}</text>
   </svg>;
 }
 

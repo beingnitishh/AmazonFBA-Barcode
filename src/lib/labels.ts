@@ -82,7 +82,23 @@ export function downloadTemplate() {
 export function sampleSheet(): SheetData {
   return { fileName: 'FNSKU_MRP_Sample.xlsx', fileSize: 8640, headers: ['FNSKU', 'Title', 'MRP (₹)'], fnskuColumn: 0, titleColumn: 1, mrpColumn: 2, rows: sampleRecords.map((r, i) => ({ rowNumber: i + 2, cells: r.map(String), numeric: [false, false, true], formulas: [false, false, false], raw: r })) };
 }
-export const labelLayout = { width: 144, height: 72, x: 12, y: 10, barcodeWidth: 120, barcodeHeight: 30, fnskuY: 49, fnskuSize: 6.8, mrpY: 61, mrpSize: 8.5 };
+export const labelLayout = { width: 144, height: 72, x: 12, y: 10, barcodeWidth: 120, barcodeHeight: 28, fnskuY: 47, fnskuSize: 6, titleY: 55, titleSize: 6, mrpY: 63, mrpSize: 6 };
+export function truncateLabelLine(text: string, maxWidth: number, measure: (text: string) => number) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  if (measure(normalized) <= maxWidth) return normalized;
+  const ellipsis = '…';
+  let low = 0;
+  let high = normalized.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = `${normalized.slice(0, mid).trimEnd()}${ellipsis}`;
+    if (measure(candidate) <= maxWidth) low = mid;
+    else high = mid - 1;
+  }
+  const prefix = normalized.slice(0, low).trimEnd();
+  return prefix ? `${prefix}${ellipsis}` : ellipsis;
+}
 export function barRects(bits: string) {
   const bars: { x: number; width: number }[] = [];
   const unit = labelLayout.barcodeWidth / bits.length;
@@ -116,9 +132,12 @@ export async function generatePdf(rows: LabelRow[], progress: (n: number) => voi
     pdf.setFillColor(0, 0, 0);
     barRects(row.bits).forEach(bar => pdf.rect(bar.x, labelLayout.y, bar.width, labelLayout.barcodeHeight, 'F'));
     pdf.setFont('Label', 'normal'); pdf.setFontSize(labelLayout.fnskuSize);
-    pdf.text(`${row.fnsku} ${row.title}`, 72, labelLayout.fnskuY, { align: 'center' });
+    pdf.text(row.fnsku, 72, labelLayout.fnskuY, { align: 'center' });
+    pdf.setFontSize(labelLayout.titleSize);
+    const title = truncateLabelLine(row.title, labelLayout.barcodeWidth, value => pdf.getTextWidth(value));
+    pdf.text(title, 72, labelLayout.titleY, { align: 'center' });
     pdf.setFont('Label', 'bold'); pdf.setFontSize(labelLayout.mrpSize);
-    pdf.text(`MRP: ₹${row.mrpDisplay}`, 72, labelLayout.mrpY, { align: 'center' });
+    pdf.text(`MRP: ₹ ${row.mrpDisplay}`, 72, labelLayout.mrpY, { align: 'center' });
     if (i % 25 === 0 || i === rows.length - 1) { progress(i + 1); await new Promise(resolve => setTimeout(resolve, 0)); }
   }
   return pdf.output('blob');
