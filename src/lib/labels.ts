@@ -83,21 +83,11 @@ export function sampleSheet(): SheetData {
   return { fileName: 'FNSKU_MRP_Sample.xlsx', fileSize: 8640, headers: ['FNSKU', 'Title', 'MRP (₹)'], fnskuColumn: 0, titleColumn: 1, mrpColumn: 2, rows: sampleRecords.map((r, i) => ({ rowNumber: i + 2, cells: r.map(String), numeric: [false, false, true], formulas: [false, false, false], raw: r })) };
 }
 export const labelLayout = { width: 144, height: 72, x: 12, y: 10, barcodeWidth: 120, barcodeHeight: 28, fnskuY: 47, fnskuSize: 6, titleY: 55, titleSize: 6, mrpY: 63, mrpSize: 6 };
-export function truncateLabelLine(text: string, maxWidth: number, measure: (text: string) => number) {
+export function truncateLabelLine(text: string, _maxWidth: number, _measure: (text: string) => number) {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return '';
-  if (measure(normalized) <= maxWidth) return normalized;
-  const ellipsis = '…';
-  let low = 0;
-  let high = normalized.length;
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2);
-    const candidate = `${normalized.slice(0, mid).trimEnd()}${ellipsis}`;
-    if (measure(candidate) <= maxWidth) low = mid;
-    else high = mid - 1;
-  }
-  const prefix = normalized.slice(0, low).trimEnd();
-  return prefix ? `${prefix}${ellipsis}` : ellipsis;
+  if (normalized.length <= 37) return normalized;
+  return `${normalized.slice(0, 19)}...${normalized.slice(-18)}`;
 }
 export function barRects(bits: string) {
   const bars: { x: number; width: number }[] = [];
